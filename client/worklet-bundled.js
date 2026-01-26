@@ -6012,6 +6012,8 @@ let waveRegistry = new Map();
 const wave = (label, graphFn) => {
   waveRegistry.set(label, graphFn);
 };
+// Make wave() available globally for eval'd code
+globalThis.wave = wave;
 
 class GenishProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -6019,10 +6021,6 @@ class GenishProcessor extends AudioWorkletProcessor {
 
     try {
       this.port.postMessage({ type: 'info', message: 'GenishProcessor constructor called' });
-
-      if (genishLoadError) {
-        this.port.postMessage({ type: 'error', message: `genish import error: ${genishLoadError}` });
-      }
 
       const genish = globalThis.genish;
       this.port.postMessage({ type: 'info', message: `genish type: ${typeof genish}` });

@@ -2,10 +2,8 @@
 // Define your audio signals here using helper functions from wave-dsp.js
 // All waves use the time parameter 't' provided by genish.accum()
 
-// Example 1: Simple sine tone using pure math
-wave('tone', t => {
-  return mul(genish.sin(mul(2 * Math.PI * 440, t)), 0.3);
-});
+// Example 1: Simple sine tone using genish directly (ultra simple test)
+wave('tone', t => genish.mul(genish.cycle(440), 0.3));
 
 // Example 2: Bass note using helper function
 // wave('bass', t => bass(t, 110));

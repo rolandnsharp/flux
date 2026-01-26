@@ -134,11 +134,15 @@
     const originalError = console.error;
     console.log = (...args) => {
         originalLog.apply(console, args);
-        socket.send(JSON.stringify({type: 'log', data: args}));
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({type: 'log', data: args}));
+        }
     };
     console.error = (...args) => {
         originalError.apply(console, args);
-        socket.send(JSON.stringify({type: 'error', data: args}));
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({type: 'error', data: args}));
+        }
     };
   } catch (e) {
     console.error('[Engine] A fatal error occurred during initialization:', e);

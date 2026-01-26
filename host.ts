@@ -74,7 +74,7 @@ const server = Bun.serve({
             console.log('[Host] CLI WebSocket established.');
         }
     },
-    message(ws, message) {
+    async message(ws, message) {
         if (ws === browserSocket) { // Message from the browser
             try {
                 const parsed = JSON.parse(message);
