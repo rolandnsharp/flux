@@ -12,10 +12,8 @@ const initialCode = await Bun.file('signal.js').text();
 console.log('[Host] Loaded initial code from signal.js');
 
 // 1. Launch Playwright
-// Note: headless mode doesn't output audio to speakers
-// Running with headless: false so you can hear the audio
 const browser = await chromium.launch({
-  headless: false,
+  headless: false, // Browser window needed for audio output
   args: [
     '--autoplay-policy=no-user-gesture-required',
     '--no-sandbox',

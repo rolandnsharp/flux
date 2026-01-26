@@ -1,34 +1,35 @@
 // wave-dsp.js
 // A functional DSP library wrapping genish.js
+// These helpers return genish expression strings for use with wave()
 
-// Check if genish is loaded
-if (typeof genish === 'undefined') {
-  throw new Error('genish.js is not loaded. Make sure it is included before wave-dsp.js');
-}
+// Basic oscillators
+const sin = (freq) => `genish.cycle(${freq})`;
+const saw = (freq) => `genish.phasor(${freq})`;
+const square = (freq) => `genish.lte(genish.phasor(${freq}), 0.5)`;
+const noise = () => `genish.noise()`;
 
-// Re-export genish functions for convenience
-const sin = (freq) => genish.cycle(freq);
+// Effects
+const gain = (amount) => (input) => `genish.mul(${input}, ${amount})`;
+const add = (a) => (input) => `genish.add(${input}, ${a})`;
+const mul = (a) => (input) => `genish.mul(${input}, ${a})`;
 
-const gain = (amount) => (input) => {
-  return genish.mul(input, amount);
-};
-
-const clip = (limit) => (input) => {
-  const absLimit = Math.abs(limit);
-  return genish.clamp(input, -absLimit, absLimit);
-};
-
-const reverb = (drywet = 0.5, room = 0.8, damping = 0.5) => (input) => {
-    return genish.freeverb(input, drywet, room, damping);
-};
-
+// Utilities
 const pipe = (...fns) => (initialValue) => {
   return fns.reduce((acc, fn) => fn(acc), initialValue);
 };
 
+// Composable examples
+const bass = (freq) => pipe(sin(freq), gain(0.5));
+const kick = () => pipe(sin(60), mul(0.8));
+
 // Make functions available globally in the browser context
 window.sin = sin;
+window.saw = saw;
+window.square = square;
+window.noise = noise;
 window.gain = gain;
-window.clip = clip;
-window.reverb = reverb;
+window.add = add;
+window.mul = mul;
 window.pipe = pipe;
+window.bass = bass;
+window.kick = kick;

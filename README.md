@@ -49,3 +49,10 @@ The system has two pathways for code:
 2.  **CLI/Vim:** The `eval.ts` script pipes code from the command line (or your editor) to the `host.ts` server, which relays it to the browser engine.
 
 In both cases, the `client/engine.js` running in the browser receives the code as a string and `eval()`s it. This executes calls to the `wave()` function, which compiles the `genish.js` audio graph and hot-swaps it in the `AudioWorklet`, ensuring a smooth crossfade for any updated sounds.
+
+## TODO / Future Enhancements
+
+- [ ] **Audio Oscilloscope**: Use the browser window to visualize the audio waveform in real-time using Canvas/WebGL
+- [ ] Add more DSP helpers (filters, envelopes, sequencing)
+- [ ] Support for MIDI input
+- [ ] Audio recording/export

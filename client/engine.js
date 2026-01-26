@@ -43,20 +43,41 @@
     const registry = new Map();
 
     // The main API function exposed to the user
-    window.wave = (label, graph) => {
-      if (typeof label !== 'string' || typeof graph !== 'string') {
-        console.error('Usage: wave("label", "genish expression as string")');
+    window.wave = (label, graphOrFn) => {
+      if (typeof label !== 'string') {
+        console.error('Usage: wave("label", "genish_expression" or () => "genish_expression")');
+        return;
+      }
+
+      let graphString;
+
+      // If it's a function, call it to get the genish expression string
+      if (typeof graphOrFn === 'function') {
+        try {
+          graphString = graphOrFn();
+          if (typeof graphString !== 'string') {
+            console.error(`[Engine] Function must return a string, got ${typeof graphString}`);
+            return;
+          }
+        } catch (e) {
+          console.error(`[Engine] Error evaluating graph function for '${label}':`, e);
+          return;
+        }
+      } else if (typeof graphOrFn === 'string') {
+        graphString = graphOrFn;
+      } else {
+        console.error('Invalid graph type - must be string or function returning string');
         return;
       }
 
       // Check if the graph is new or an update
       const type = registry.has(label) ? 'update' : 'add';
-      registry.set(label, graph);
+      registry.set(label, graphString);
 
       genishNode.port.postMessage({
         type: type,
         label: label,
-        graph: graph
+        graph: graphString
       });
       console.log(`[Engine] ${type === 'add' ? 'Added' : 'Updated'} signal: '${label}'`);
     };
