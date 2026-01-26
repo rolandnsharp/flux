@@ -15,7 +15,7 @@
 
     console.log('[Engine] Attempting to load AudioWorklet module...');
     try {
-      await audioContext.audioWorklet.addModule('/client/worklet.js');
+      await audioContext.audioWorklet.addModule('/client/worklet-bundled.js');
       console.log('[Engine] AudioWorklet module loaded successfully.');
     } catch (error) {
       console.error('[Engine] Failed to load AudioWorklet module:', error);
@@ -30,24 +30,33 @@
         sampleRate: audioContext.sampleRate
     });
 
+    // Listen for messages from the worklet
+    genishNode.port.onmessage = (event) => {
+      if (event.data.type === 'error') {
+        console.error('[Engine] Worklet error:', event.data.message);
+      } else if (event.data.type === 'info') {
+        console.log('[Engine] Worklet info:', event.data.message);
+      }
+    };
+
 
     const registry = new Map();
 
     // The main API function exposed to the user
     window.wave = (label, graph) => {
-      if (typeof label !== 'string' || typeof graph !== 'function') {
-        console.error('Usage: wave("label", <genish_function>)');
+      if (typeof label !== 'string' || typeof graph !== 'string') {
+        console.error('Usage: wave("label", "genish expression as string")');
         return;
       }
-      
+
       // Check if the graph is new or an update
       const type = registry.has(label) ? 'update' : 'add';
-      registry.set(label, graph.toString());
+      registry.set(label, graph);
 
       genishNode.port.postMessage({
         type: type,
         label: label,
-        graph: graph.toString(), // Serialize the function to a string
+        graph: graph
       });
       console.log(`[Engine] ${type === 'add' ? 'Added' : 'Updated'} signal: '${label}'`);
     };

@@ -1,13 +1,7 @@
 // signal.js
 
-// This is a simplified test to diagnose the "no audio" issue.
-// It bypasses the `wave-dsp.js` library (pipe, sin, gain, etc.)
-// and uses raw genish.js functions.
-//
-// If this produces sound, the issue is in `wave-dsp.js`.
-// If this does NOT produce sound, the issue is in the core engine/worklet.
+// Simple test with genish.js
+// wave() expects a label and a genish graph expression as a string
 
-wave(
-  'diagnostic-tone',
-  (t) => genish.mul(genish.cycle(440), 0.5)
-);
+// Change frequency to 880Hz (one octave up)
+wave('tone', 'genish.mul(genish.cycle(680), 0.3)');
