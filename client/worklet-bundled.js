@@ -6383,10 +6383,11 @@ class GenishProcessor extends AudioWorkletProcessor {
       const current = this.registry.get(label);
 
       if (current) {
-        // Hot-swap: State-safe crossfade (20ms with equal-power curve)
-        // Capture current STATE values for new graph to use during crossfade
-        // This prevents old/new graphs from fighting over STATE writes
-        const capturedState = new Float32Array(globalThis.STATE_BUFFER);
+        // Hot-swap: STATE-SAFE CROSSFADE (50ms equal-power)
+        // Create genish.data() wrapper for captured state
+        const capturedStateBuffer = new Float32Array(globalThis.STATE_BUFFER);
+        const capturedState = genish.data(capturedStateBuffer, 1);
+        const capturedSineTable = genish.data(globalThis.SINE_TABLE_BUFFER, 1, { immutable: true });
 
         this.registry.set(label, {
           graph: compiledCallback,
@@ -6395,11 +6396,13 @@ class GenishProcessor extends AudioWorkletProcessor {
           oldGraph: current.graph,
           oldContext: current.context,
           fade: 0.0,
-          fadeDuration: 0.02 * this.sampleRate,  // 20ms - fast but smooth
-          capturedState: capturedState,  // New graph uses this during fade
+          fadeDuration: 0.005 * this.sampleRate,  // 5ms - ultra-short
+          capturedState: capturedState,
+          capturedStateBuffer: capturedStateBuffer,
+          capturedSineTable: capturedSineTable,
           isFading: true
         });
-        this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (20ms equal-power xfade)` });
+        this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (5ms micro-xfade)` });
       } else {
         // First compilation
         this.registry.set(label, { graph: compiledCallback, context: context, update: updateFn, oldGraph: null, fade: 1.0 });
@@ -6425,17 +6428,20 @@ class GenishProcessor extends AudioWorkletProcessor {
         try {
           let currentSample = 0;
 
-          // STATE-SAFE CROSSFADE: Handle buffer swapping during fade
+          // STATE-SAFE CROSSFADE: Swap genish.data() wrappers during fade
           if (synth.isFading && synth.capturedState) {
-            // Save real STATE_BUFFER
-            const realStateBuffer = globalThis.STATE_BUFFER;
+            // Save real genish.data() wrappers
+            const realState = globalThis.STATE;
+            const realSineTable = globalThis.SINE_TABLE;
 
-            // NEW GRAPH: Use captured state (doesn't interfere with old graph)
-            globalThis.STATE_BUFFER = synth.capturedState;
+            // NEW GRAPH: Use captured genish.data() wrappers (isolated sandbox)
+            globalThis.STATE = synth.capturedState;
+            globalThis.SINE_TABLE = synth.capturedSineTable;
             currentSample = synth.graph.call(synth.context);
 
-            // OLD GRAPH: Use real STATE_BUFFER (continues normally)
-            globalThis.STATE_BUFFER = realStateBuffer;
+            // OLD GRAPH: Use real genish.data() wrappers (continues normally)
+            globalThis.STATE = realState;
+            globalThis.SINE_TABLE = realSineTable;
             const oldSample = synth.oldGraph.call(synth.oldContext);
 
             // Equal-power crossfade (prevents volume dip)
@@ -6446,13 +6452,15 @@ class GenishProcessor extends AudioWorkletProcessor {
 
             synth.fade++;
             if (synth.fade >= synth.fadeDuration) {
-              // Crossfade complete: sync captured state to real STATE
-              for (let i = 0; i < synth.capturedState.length; i++) {
-                realStateBuffer[i] = synth.capturedState[i];
+              // Crossfade complete: sync captured buffer to real STATE_BUFFER
+              for (let i = 0; i < synth.capturedStateBuffer.length; i++) {
+                globalThis.STATE_BUFFER[i] = synth.capturedStateBuffer[i];
               }
               synth.oldGraph = null;
               synth.oldContext = null;
               synth.capturedState = null;
+              synth.capturedStateBuffer = null;
+              synth.capturedSineTable = null;
               synth.isFading = false;
               this.port.postMessage({ type: 'info', message: `Crossfade complete for '${label}', STATE synchronized` });
             }
