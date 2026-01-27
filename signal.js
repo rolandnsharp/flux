@@ -9,8 +9,8 @@
 // Just return a genish graph. Best for effects, filters, static patches.
 // Phase resets when you edit, but changes are instant.
 
-// Simple 440Hz sine wave (test simple pattern):
-wave('sine', (t) => mul(cycle(440), 0.5));
+// Uncomment to hear a simple 440Hz sine wave:
+// wave('sine', (t) => mul(cycle(440), 0.5));
 
 // Try changing the frequency or adding effects:
 // wave('filtered', (t) => lp(mul(cycle(220), 0.7), 0.2));
@@ -29,11 +29,10 @@ wave('sine', (t) => mul(cycle(440), 0.5));
 //   - Change LFO rate: 0.3 → 1.0 → 0.1 (pulsing speeds up/down)
 //   - Change cutoff: 0.15 → 0.5 → 0.05 (brightness changes)
 
-// Stateful drone (comment out to test simple pattern)
-// wave('drone', (t, state) => {
-//   return {
-//     graph: mul(0, t),  // Dummy graph (we generate samples in update)
-//     update: () => {
+wave('drone', (t, state) => {
+  return {
+    graph: mul(0, t),  // Dummy graph (we generate samples in update)
+    update: () => {
       // LIVE EDIT THESE VALUES:
       const baseFreq = 310;   // Try: 110, 220, 165, 82.5
       const detune = 180;     // Try: 0.5, 2, 5, 10, 50
@@ -72,10 +71,10 @@ wave('sine', (t) => mul(cycle(440), 0.5));
       const filtered = y_prev + cutoff * (mix - y_prev);
       state[70] = filtered;
 
-//       return filtered * 0.6;
-//     }
-//   };
-// });
+      return filtered * 0.6;
+    }
+  };
+});
 
 
 // ============================================================================
