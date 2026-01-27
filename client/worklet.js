@@ -54,9 +54,9 @@ class GenishProcessor extends AudioWorkletProcessor {
       this.registry = new Map();
       this.sampleRate = 44100;
 
-      // Preserve genish memory heap across all compilations
-      // This ensures STATE and SINE_TABLE indices remain valid
-      this.sharedContext = { memory: genish.gen.memory.heap };
+      // Shared context will be created on first compilation
+      // when genish.gen.memory is guaranteed to exist
+      this.sharedContext = null;
 
       this.port.postMessage({ type: 'info', message: 'GenishProcessor ready' });
     } catch (e) {
@@ -142,8 +142,12 @@ class GenishProcessor extends AudioWorkletProcessor {
       // Compile the genish graph into an optimized callback
       const compiledCallback = genish.gen.createCallback(genishGraph, genish.gen.memory);
 
-      // Use shared context to preserve memory across compilations
+      // Create or reuse shared context to preserve memory across compilations
       // This ensures STATE and SINE_TABLE remain valid
+      if (!this.sharedContext) {
+        this.sharedContext = { memory: genish.gen.memory.heap };
+        this.port.postMessage({ type: 'info', message: 'Shared context created' });
+      }
       const context = this.sharedContext;
 
       const current = this.registry.get(label);
