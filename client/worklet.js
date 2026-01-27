@@ -153,20 +153,23 @@ class GenishProcessor extends AudioWorkletProcessor {
       const current = this.registry.get(label);
 
       if (current) {
-        // Hot-swap: INSTANT replacement - no crossfade
-        // For stateful patterns, crossfade is harmful because both graphs would
-        // call poke() causing phase to advance 2x during crossfade
-        // Instead, rely on phase continuity for click-free transitions
+        // Hot-swap: State-safe crossfade (50ms)
+        // Capture current STATE values for new graph to use during crossfade
+        // This prevents old/new graphs from fighting over STATE writes
+        const capturedState = new Float32Array(globalThis.STATE_BUFFER);
+
         this.registry.set(label, {
           graph: compiledCallback,
           context: context,
           update: updateFn,
-          oldGraph: null,
-          oldContext: null,
-          fade: 1.0,
-          fadeDuration: 0
+          oldGraph: current.graph,
+          oldContext: current.context,
+          fade: 0.0,
+          fadeDuration: 0.05 * this.sampleRate,  // 50ms
+          capturedState: capturedState,  // New graph uses this during fade
+          isFading: true
         });
-        this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (instant)` });
+        this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (state-safe xfade)` });
       } else {
         // First compilation
         this.registry.set(label, { graph: compiledCallback, context: context, update: updateFn, oldGraph: null, fade: 1.0 });
@@ -192,38 +195,57 @@ class GenishProcessor extends AudioWorkletProcessor {
         try {
           let currentSample = 0;
 
-          if (synth.update) {
-            // Stateful pattern: call update() function
-            const updateResult = synth.update();
-            if (typeof updateResult === 'number') {
-              // update() returns sample directly (pure JS mode)
-              currentSample = updateResult;
-            } else {
-              // update() just updates state, graph generates sample (hybrid mode)
-              currentSample = synth.graph.call(synth.context);
+          // STATE-SAFE CROSSFADE: Handle buffer swapping during fade
+          if (synth.isFading && synth.capturedState) {
+            // Save real STATE_BUFFER
+            const realStateBuffer = globalThis.STATE_BUFFER;
+
+            // NEW GRAPH: Use captured state (doesn't interfere with old graph)
+            globalThis.STATE_BUFFER = synth.capturedState;
+            currentSample = synth.graph.call(synth.context);
+
+            // OLD GRAPH: Use real STATE_BUFFER (continues normally)
+            globalThis.STATE_BUFFER = realStateBuffer;
+            const oldSample = synth.oldGraph.call(synth.oldContext);
+
+            // Crossfade between old and new
+            const fadeValue = synth.fade / synth.fadeDuration;
+            currentSample = (currentSample * fadeValue) + (oldSample * (1 - fadeValue));
+
+            synth.fade++;
+            if (synth.fade >= synth.fadeDuration) {
+              // Crossfade complete: sync captured state to real STATE
+              for (let i = 0; i < synth.capturedState.length; i++) {
+                realStateBuffer[i] = synth.capturedState[i];
+              }
+              synth.oldGraph = null;
+              synth.oldContext = null;
+              synth.capturedState = null;
+              synth.isFading = false;
+              this.port.postMessage({ type: 'info', message: `Crossfade complete for '${label}', STATE synchronized` });
             }
           } else {
-            // Simple pattern: pure genish graph
-            currentSample = synth.graph.call(synth.context);
+            // Normal operation (no crossfade)
+            if (synth.update) {
+              // Stateful pattern: call update() function
+              const updateResult = synth.update();
+              if (typeof updateResult === 'number') {
+                // update() returns sample directly (pure JS mode)
+                currentSample = updateResult;
+              } else {
+                // update() just updates state, graph generates sample (hybrid mode)
+                currentSample = synth.graph.call(synth.context);
+              }
+            } else {
+              // Simple pattern: pure genish graph
+              currentSample = synth.graph.call(synth.context);
+            }
           }
 
           // Debug: log first few samples
           if (sampleDebugCount < 5) {
             this.port.postMessage({ type: 'info', message: `Sample ${sampleDebugCount} from '${label}': ${currentSample}` });
             sampleDebugCount++;
-          }
-
-          // Handle crossfade during hot-swap
-          if (synth.oldGraph) {
-            const oldSample = synth.oldGraph.call(synth.oldContext);
-            const fadeValue = synth.fade / synth.fadeDuration;
-            currentSample = (currentSample * fadeValue) + (oldSample * (1 - fadeValue));
-
-            synth.fade++;
-            if (synth.fade >= synth.fadeDuration) {
-              synth.oldGraph = null;
-              synth.oldContext = null;
-            }
           }
 
           sample += currentSample;
