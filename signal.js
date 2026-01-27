@@ -11,27 +11,28 @@
 // ============================================================================
 // Code reduction: 40+ lines → 1 line (98% reduction!)
 
+// Arrow function for deterministic slot allocation
 wave('minimal-drone', () =>
-  withLfo(mixGain(voices(333, 2, 4), 0.4), 0.3, 0.25)
+  withLfo(mixGain(voices(343, 1, 3), 1.0), 0.8, 0.85)
 );
 
 // ============================================================================
-// LIVE CODING TEST - Try uncommenting and modifying these!
+// MULTIPLE WAVES DEMO - Each wave needs a UNIQUE label to play together!
 // ============================================================================
 
-// Uncomment to add more voices (4 → 8):
-// wave('minimal-drone', () =>
-//   withLfo(mixGain(voices(375, 2, 8), 0.4), 0.3, 0.25)
+// Wave 1: Low bass drone
+// wave('bass', () =>
+//   withLfo(mixGain(voices(330, 2, 4), 0.3), 0.3, 0.25)
 // );
 
-// Uncomment for wider detune (2 → 10Hz):
-// wave('minimal-drone', () =>
-//   withLfo(mixGain(voices(375, 10, 4), 0.4), 0.3, 0.25)
-// );
+// Wave 2: Mid drone (plays AT THE SAME TIME as bass)
+wave('mid', () =>
+  withLfo(mixGain(voices(220, 3, 4), 0.25), 0.5, 0.20)
+);
 
-// Uncomment for faster LFO (0.3 → 2.0 Hz):
-// wave('minimal-drone', () =>
-//   withLfo(mixGain(voices(375, 2, 4), 0.4), 2.0, 0.25)
+// Wave 3: High lead (ready to become looper later)
+// wave('lead', () =>
+//   mul(osc(440), 0.15)
 // );
 
 // ============================================================================

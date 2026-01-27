@@ -2,7 +2,7 @@
 	typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
 	typeof define === 'function' && define.amd ? define(factory) :
 	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, global.genish = factory());
-})(globalThis, (function () { 'use strict';
+})(this, (function () { 'use strict';
 
 	function getDefaultExportFromCjs (x) {
 		return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
@@ -46,7 +46,7 @@
 
 		let MemoryHelper = {
 		  
-		  create( sizeOrBuffer=16384, memtype=Float32Array ) {
+		  create( sizeOrBuffer=4096, memtype=Float32Array ) {
 		    let helper = Object.create( this );
 
 		    // conveniently, buffer constructors accept either a size or an array buffer to use...
@@ -731,7 +731,7 @@
 		    }
 		  },
 
-		  createMemory( amount=16384, type ) {
+		  createMemory( amount=4096, type ) {
 		    const mem = MemoryHelper.create( amount, type );
 		    return mem
 		  },
@@ -6390,12 +6390,20 @@ class GenishProcessor extends AudioWorkletProcessor {
       }
 
       this.port.onmessage = this.handleMessage.bind(this);
-      this.registry = new Map();
+      this.registry = new Map(); // Multiple separate wave graphs
       this.sampleRate = 44100;
 
       // Shared context will be created on first compilation
       // when genish.gen.memory is guaranteed to exist
       this.sharedContext = null;
+
+      // 2026 CRITICAL: Initialize genish with larger memory heap for multiple waves
+      // Default 4096 samples is too small for multiple complex oscillator patches
+      // 65536 samples = 64KB, enough for dozens of stateful oscillators
+      if (!genish.gen.memory) {
+        genish.gen.memory = genish.gen.createMemory(65536, Float64Array);
+        this.port.postMessage({ type: 'info', message: 'Genish memory initialized (65536 samples)' });
+      }
 
       this.port.postMessage({ type: 'info', message: 'GenishProcessor ready' });
     } catch (e) {
@@ -6424,13 +6432,18 @@ class GenishProcessor extends AudioWorkletProcessor {
         }
 
         // ==================================================================
-        // 2026 BEST PRACTICE: Reset slot counter before each recompilation
-        // This ensures deterministic mapping (osc(440) always gets same slot)
+        // 2026 BEST PRACTICE: Reset slot counter for deterministic mapping
+        // This ensures osc(440) always gets the same slot across recompilations
         // ==================================================================
         if (globalThis._internalResetSlots) {
           globalThis._internalResetSlots();
           this.port.postMessage({ type: 'info', message: 'Slot counter reset to 100' });
         }
+
+        // NOTE: We do NOT clear genish.gen.memory on recompilation.
+        // Genish's memory heap grows as needed and reuses freed blocks.
+        // Clearing would force all waves to fit in a fixed-size heap, causing
+        // "No available blocks" errors when adding multiple waves.
 
         this.port.postMessage({ type: 'info', message: 'Evaluating signal.js...' });
 
@@ -6439,23 +6452,71 @@ class GenishProcessor extends AudioWorkletProcessor {
 
         this.port.postMessage({ type: 'info', message: `Found ${waveRegistry.size} wave definitions` });
 
-        // Now compile all the waves (compileWave will hot-swap if they exist)
-        const compiledLabels = new Set();
+        // CRITICAL: In genish, all graphs must be compiled BEFORE getting the final memory heap
+        // Step 1: Compile all graphs (this populates genish.gen.memory)
+        const compiledWaves = new Map();
         for (const [label, graphFn] of waveRegistry.entries()) {
-          this.compileWave(label, graphFn);
-          compiledLabels.add(label);
-        }
-
-        // Remove any waves from registry that weren't just compiled
-        for (const label of this.registry.keys()) {
-          if (!compiledLabels.has(label)) {
-            this.registry.delete(label);
-            this.port.postMessage({ type: 'info', message: `Removed '${label}' (no longer defined)` });
+          const compiled = this.compileWaveGraph(label, graphFn);
+          if (compiled) {
+            compiledWaves.set(label, compiled);
           }
         }
 
-        this.port.postMessage({ type: 'info', message: `Compiled ${waveRegistry.size} waves successfully` });
-        this.port.postMessage({ type: 'info', message: `Audio registry now has ${this.registry.size} active synths` });
+        // Step 2: NOW capture the final memory heap (after all compilations)
+        // Only create sharedContext if we actually compiled waves
+        if (compiledWaves.size === 0) {
+          this.port.postMessage({ type: 'info', message: 'No waves to compile' });
+          // Clear registry since no new waves were defined
+          for (const label of this.registry.keys()) {
+            this.registry.delete(label);
+            this.port.postMessage({ type: 'info', message: `Removed '${label}'` });
+          }
+          return;
+        }
+
+        const sharedContext = { memory: genish.gen.memory.heap };
+        this.port.postMessage({ type: 'info', message: `Captured shared memory heap after compiling ${compiledWaves.size} waves` });
+
+        // Step 3: Store all waves with the shared context
+        for (const [label, compiled] of compiledWaves.entries()) {
+          const current = this.registry.get(label);
+
+          if (current) {
+            // Hot-swap with crossfade
+            globalThis.HANDOVER_BUFFER.set(globalThis.STATE_BUFFER);
+            this.registry.set(label, {
+              graph: compiled.callback,
+              context: sharedContext,
+              update: compiled.updateFn,
+              oldGraph: current.graph,
+              oldContext: current.context,
+              fade: 0.0,
+              fadeDuration: 0.05 * this.sampleRate,
+              isFading: true
+            });
+            this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (50ms crossfade)` });
+          } else {
+            // First compilation
+            this.registry.set(label, {
+              graph: compiled.callback,
+              context: sharedContext,
+              update: compiled.updateFn,
+              oldGraph: null,
+              fade: 1.0
+            });
+            this.port.postMessage({ type: 'info', message: `Compiled '${label}'` });
+          }
+        }
+
+        // Remove waves that are no longer defined
+        for (const label of this.registry.keys()) {
+          if (!compiledWaves.has(label)) {
+            this.registry.delete(label);
+            this.port.postMessage({ type: 'info', message: `Removed '${label}'` });
+          }
+        }
+
+        this.port.postMessage({ type: 'info', message: `Active waves: ${this.registry.size}` });
       } catch (e) {
         this.port.postMessage({ type: 'error', message: `Error evaluating signal.js: ${e.message}` });
         console.error('[GenishProcessor] Eval error:', e);
@@ -6464,84 +6525,38 @@ class GenishProcessor extends AudioWorkletProcessor {
     }
   }
 
-  compileWave(label, graphFn) {
+  compileWaveGraph(label, graphFn) {
     try {
       const genish = globalThis.genish;
       if (!genish || !genish.gen || !genish.gen.createCallback) {
         throw new Error('genish.gen.createCallback not available');
       }
 
-      // STATE and SINE_TABLE are created once in constructor and reused
-      // No need to recreate genish.data() wrappers on every compilation
-
       // Create time accumulator
       const t = genish.accum(1 / this.sampleRate);
 
-      // ==================================================================
-      // CRITICAL: Reset slot counter BEFORE calling graphFn
-      // This ensures osc(440) gets the SAME slot even if code above changes
-      // ==================================================================
-      if (globalThis._internalResetSlots) {
-        globalThis._internalResetSlots();
-      }
-
       // Call user function with (t, state)
-      // User can return either:
-      //   1. A genish graph directly: wave('name', (t) => mul(cycle(440), 0.5))
-      //   2. {graph, update} for JS stateful: wave('name', (t, state) => ({graph, update}))
-      //      state is raw Float32Array for JavaScript access
-      //   3. Genish stateful: wave('name', (t) => genishGraph with peek(STATE, ...))
-      //      STATE is global genish.data() object accessible in graph
       const result = graphFn(t, globalThis.STATE_BUFFER);
 
       let genishGraph, updateFn;
       if (result && typeof result === 'object' && result.graph) {
-        // Stateful pattern: user returned {graph, update}
         genishGraph = result.graph;
         updateFn = result.update || null;
       } else {
-        // Simple pattern: user returned a genish graph
         genishGraph = result;
         updateFn = null;
       }
 
-      // Compile the genish graph into an optimized callback
+      // Compile the genish graph (adds to genish.gen.memory)
       const compiledCallback = genish.gen.createCallback(genishGraph, genish.gen.memory);
 
-      // Create or reuse shared context to preserve memory across compilations
-      // This ensures STATE and SINE_TABLE remain valid
-      if (!this.sharedContext) {
-        this.sharedContext = { memory: genish.gen.memory.heap };
-        this.port.postMessage({ type: 'info', message: 'Shared context created' });
-      }
-      const context = this.sharedContext;
-
-      const current = this.registry.get(label);
-
-      if (current) {
-        // Hot-swap: Phase-locked handover with pre-allocated buffers
-        // Fast SIMD copy using .set()
-        globalThis.HANDOVER_BUFFER.set(globalThis.STATE_BUFFER);
-
-        this.registry.set(label, {
-          graph: compiledCallback,
-          context: context,
-          update: updateFn,
-          oldGraph: current.graph,
-          oldContext: current.context,
-          fade: 0.0,
-          fadeDuration: 0.05 * this.sampleRate,  // 50ms
-          isFading: true
-        });
-        this.port.postMessage({ type: 'info', message: `Recompiled '${label}' (50ms phase-locked)` });
-      } else {
-        // First compilation
-        this.registry.set(label, { graph: compiledCallback, context: context, update: updateFn, oldGraph: null, fade: 1.0 });
-        this.port.postMessage({ type: 'info', message: `Compiled '${label}'` });
-      }
+      // Return the compiled callback and update function
+      // Context will be set AFTER all waves are compiled
+      return { callback: compiledCallback, updateFn: updateFn };
     } catch (e) {
       this.port.postMessage({ type: 'error', message: `Error compiling '${label}': ${e.message}` });
       console.error('[GenishProcessor] Compilation error:', e);
+      return null;
     }
   }
 
@@ -6549,12 +6564,10 @@ class GenishProcessor extends AudioWorkletProcessor {
     const output = outputs[0];
     const channel = output[0];
 
-    // Debug: log first few samples
-    let sampleDebugCount = this.sampleDebugCount || 0;
-
     for (let i = 0; i < channel.length; i++) {
-      let sample = 0;
+      let mixedSample = 0;
 
+      // Sum all active waves together (additive mixing)
       for (const [label, synth] of this.registry.entries()) {
         try {
           let currentSample = 0;
@@ -6588,28 +6601,19 @@ class GenishProcessor extends AudioWorkletProcessor {
           } else {
             // Normal operation (no crossfade)
             if (synth.update) {
-              // Stateful pattern: call update() function
               const updateResult = synth.update();
               if (typeof updateResult === 'number') {
-                // update() returns sample directly (pure JS mode)
                 currentSample = updateResult;
               } else {
-                // update() just updates state, graph generates sample (hybrid mode)
                 currentSample = synth.graph.call(synth.context);
               }
             } else {
-              // Simple pattern: pure genish graph
               currentSample = synth.graph.call(synth.context);
             }
           }
 
-          // Debug: log first few samples
-          if (sampleDebugCount < 5) {
-            this.port.postMessage({ type: 'info', message: `Sample ${sampleDebugCount} from '${label}': ${currentSample}` });
-            sampleDebugCount++;
-          }
-
-          sample += currentSample;
+          // Add this wave to the mix
+          mixedSample += currentSample;
         } catch (e) {
           this.port.postMessage({ type: 'error', message: `Runtime error in '${label}': ${e.toString()}` });
           this.registry.delete(label);
@@ -6617,10 +6621,9 @@ class GenishProcessor extends AudioWorkletProcessor {
       }
 
       // Hard clip to prevent speaker damage
-      channel[i] = Math.max(-1, Math.min(1, sample));
+      channel[i] = Math.max(-1, Math.min(1, mixedSample));
     }
 
-    this.sampleDebugCount = sampleDebugCount;
     return true;
   }
 }
