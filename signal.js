@@ -9,18 +9,62 @@
 // Just return a genish graph. Best for effects, filters, static patches.
 // Phase resets when you edit, but changes are instant.
 
-// GENISH LIVE-SURGERY SINE using cycle()
-wave('genish-live-sine', (t) => {
-  // Use cycle() which is genish's built-in optimized sine oscillator
-  // It manages its own phase internally - much more stable than manual phase + sin()
-  const freq = 440;
-  const out = cycle(freq);
+// ============================================================================
+// PATTERN 3: HYBRID - THE HOLY GRAIL OF LIVE SURGERY
+// ============================================================================
+// Genish-compiled performance + stateful phase = click-free parameter changes!
+// Change baseFreq, detune, lfoRate while playing - perfectly smooth morphing
 
-  // We can still use STATE to store gain or other parameters
-  // to prove the bridge is alive
-  const gain = peek(globalThis.STATE, 1, { mode: 'samples' }); // index 1 for gain
+wave('hybrid-drone', (t) => {
+  // === LIVE EDIT THESE PARAMETERS ===
+  const baseFreq = 440;   // Try: 110, 220, 330, 440 (no clicks!)
+  const detune = 15;      // Try: 0.5, 2, 5, 10, 20 (chorus width)
+  const lfoRate = 0.3;    // Try: 0.1, 0.5, 1.0, 2.0 (pulsing speed)
 
-  return mul(out, 0.5);
+  // Voice frequencies with detuning
+  const freq1 = baseFreq;
+  const freq2 = baseFreq + detune;
+  const freq3 = baseFreq - (detune * 1.5);
+  const freq4 = baseFreq + (detune * 2.2);
+
+  // === VOICE 1 (STATE slot 0) ===
+  const phase1 = peek(globalThis.STATE, 0, { mode: 'samples' });
+  const newPhase1 = mod(add(phase1, freq1 / 44100), 1.0);
+  poke(globalThis.STATE, newPhase1, 0);
+  const osc1 = peek(globalThis.SINE_TABLE, newPhase1);
+
+  // === VOICE 2 (STATE slot 1) ===
+  const phase2 = peek(globalThis.STATE, 1, { mode: 'samples' });
+  const newPhase2 = mod(add(phase2, freq2 / 44100), 1.0);
+  poke(globalThis.STATE, newPhase2, 1);
+  const osc2 = peek(globalThis.SINE_TABLE, newPhase2);
+
+  // === VOICE 3 (STATE slot 2) ===
+  const phase3 = peek(globalThis.STATE, 2, { mode: 'samples' });
+  const newPhase3 = mod(add(phase3, freq3 / 44100), 1.0);
+  poke(globalThis.STATE, newPhase3, 2);
+  const osc3 = peek(globalThis.SINE_TABLE, newPhase3);
+
+  // === VOICE 4 (STATE slot 3) ===
+  const phase4 = peek(globalThis.STATE, 3, { mode: 'samples' });
+  const newPhase4 = mod(add(phase4, freq4 / 44100), 1.0);
+  poke(globalThis.STATE, newPhase4, 3);
+  const osc4 = peek(globalThis.SINE_TABLE, newPhase4);
+
+  // Mix the 4 voices
+  const mix = mul(add(add(add(osc1, osc2), osc3), osc4), 0.25);
+
+  // === LFO for amplitude modulation (STATE slot 10) ===
+  const lfoPhase = peek(globalThis.STATE, 10, { mode: 'samples' });
+  const newLfoPhase = mod(add(lfoPhase, lfoRate / 44100), 1.0);
+  poke(globalThis.STATE, newLfoPhase, 10);
+  const lfo = peek(globalThis.SINE_TABLE, newLfoPhase);
+
+  // LFO range: 0.5 to 1.0 (pulsing, never silent)
+  const lfoAmt = add(mul(lfo, 0.25), 0.75);
+
+  // Apply LFO and output gain
+  return mul(mul(mix, lfoAmt), 0.4);
 });
 
 // Try changing the frequency or adding effects:

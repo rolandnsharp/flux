@@ -6223,6 +6223,10 @@ globalScope.g = g;
 globalScope.peek = g.peek;
 globalScope.poke = g.poke;
 globalScope.data = g.data;
+
+// Expose gen for accessing globals like the cycle wavetable
+globalScope.gen = g.gen;
+
 // Note: STATE is exposed globally by worklet.js after creation
 // client/worklet.js
 
@@ -6256,6 +6260,16 @@ class GenishProcessor extends AudioWorkletProcessor {
           globalThis.STATE_BUFFER[i] = 0.001 * i;
         }
         this.port.postMessage({ type: 'info', message: `STATE buffer created, first value: ${globalThis.STATE_BUFFER[0]}` });
+      }
+
+      // Create sine wavetable for genish stateful oscillators
+      // This is the same table that cycle() uses internally
+      if (!globalThis.SINE_TABLE_BUFFER) {
+        globalThis.SINE_TABLE_BUFFER = new Float32Array(2048);
+        for (let i = 0; i < 2048; i++) {
+          globalThis.SINE_TABLE_BUFFER[i] = Math.sin((i / 2048) * Math.PI * 2);
+        }
+        this.port.postMessage({ type: 'info', message: 'Sine wavetable created (2048 samples)' });
       }
 
       this.port.onmessage = this.handleMessage.bind(this);
@@ -6327,6 +6341,13 @@ class GenishProcessor extends AudioWorkletProcessor {
           length: globalThis.STATE_BUFFER.length,
           first: globalThis.STATE_BUFFER[0]
         })}`
+      });
+
+      // Wrap sine wavetable with genish.data() for peek() access
+      globalThis.SINE_TABLE = genish.data(globalThis.SINE_TABLE_BUFFER, 1, { immutable: true });
+      this.port.postMessage({
+        type: 'info',
+        message: `SINE_TABLE created: ${globalThis.SINE_TABLE.name}, length: ${globalThis.SINE_TABLE_BUFFER.length}`
       });
 
       // Create time accumulator

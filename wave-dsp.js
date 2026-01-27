@@ -267,4 +267,8 @@ globalScope.g = g;
 globalScope.peek = g.peek;
 globalScope.poke = g.poke;
 globalScope.data = g.data;
+
+// Expose gen for accessing globals like the cycle wavetable
+globalScope.gen = g.gen;
+
 // Note: STATE is exposed globally by worklet.js after creation
