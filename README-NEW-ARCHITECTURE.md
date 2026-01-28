@@ -1,16 +1,26 @@
-# KANON - New FRP Architecture (2026)
+# Flux Architecture (2026)
 
-## Architecture Overview
+## Migration from Genish/Browser Architecture
 
-**Moved from:** genish.js peek/poke → **To:** Closure-based FRP with SharedArrayBuffer
+**Previous architecture (deprecated):**
+- genish.js peek/poke abstractions
+- Browser-based AudioWorklet
+- WebSocket eval server
+- File watcher for hot-reload
 
-### Core Layers
+**Current architecture:**
+- Closure-based FRP with persistent state
+- Native Bun audio via speaker.js
+- Bun `--hot` flag for module reloading
+- Zero abstractions, direct Float64Array access
+
+## Core Layers
 
 ```
 ┌─────────────────────────────────────────┐
 │  signals.js - Live Coding Interface     │  ← Edit this while running!
 ├─────────────────────────────────────────┤
-│  kanon.js - Signal Registry (FRP)       │  ← Pure functional state transformers
+│  flux.js - Signal Registry (FRP)        │  ← Pure functional state transformers
 ├─────────────────────────────────────────┤
 │  storage.js - Ring Buffer (The Well)    │  ← SharedArrayBuffer, survives hot-reload
 ├─────────────────────────────────────────┤
@@ -20,74 +30,11 @@
 └─────────────────────────────────────────┘
 ```
 
-### Key Features
+## Key Improvements
 
-- **Phase Continuity**: State persists in `globalThis.KANON_STATE` during hot-reload
-- **Soft Clipping**: All signals auto-clipped with `Math.tanh()` for safety
-- **Dimension Agnostic**: STRIDE=1 (mono) now, easy to upgrade to stereo/3D
-- **Functional Purity**: Pure state transformers (state → nextState → sample)
-- **Modular Transport**: Easy swap from speaker.js to JACK FFI later
+### 1. Direct State Access
 
-## Quick Start
-
-```bash
-# Run with hot-reload
-bun --hot index.js
-
-# Edit signals.js while running for instant surgery!
-```
-
-## File Structure
-
-- `index.js` - Entry point
-- `engine.js` - Audio loop & lifecycle
-- `storage.js` - Ring buffer (SharedArrayBuffer)
-- `kanon.js` - Signal registry & mixing
-- `transport.js` - Audio output (speaker.js)
-- `signals.js` - **LIVE CODE HERE!** User-facing signal definitions
-- `math-helpers.js` - Vector math utilities
-
-### Old Files (Backed Up)
-
-- `wave-dsp-old.js` - Old genish wrapper
-- `signal-old.js` - Old genish-based API
-- `genish.js` - No longer needed
-
-## Example: Van der Pol Oscillator
-
-```javascript
-import { kanon } from './kanon.js';
-
-const vanDerPolStep = (state, { mu, dt }) => {
-  const [x, y] = state;
-  const dx = y;
-  const dy = mu * (1 - x * x) * y - x;
-  return [x + dx * dt, y + dy * dt];
-};
-
-kanon('van-der-pol', (mem, idx) => {
-  const params = { mu: 1.5, dt: 0.05 }; // Change these live!
-
-  if (mem[idx] === 0) {
-    mem[idx] = 0.1;
-    mem[idx + 1] = 0.1;
-  }
-
-  return {
-    update: () => {
-      const current = [mem[idx], mem[idx + 1]];
-      const [nextX, nextY] = vanDerPolStep(current, params);
-      mem[idx] = nextX;
-      mem[idx + 1] = nextY;
-      return [nextX * 0.4]; // Mono output
-    }
-  };
-});
-```
-
-## Migration from Old API
-
-### Before (genish peek/poke):
+**Before (genish.js):**
 ```javascript
 const phase = peek(globalThis.STATE, 0, { mode: 'samples' });
 const newPhase = mod(add(phase, 440/44100), 1.0);
@@ -95,30 +42,193 @@ poke(globalThis.STATE, newPhase, 0);
 return peek(globalThis.SINE_TABLE, newPhase);
 ```
 
-### After (closure-based):
+**After (Flux):**
 ```javascript
-let phase = state[idx];
-phase = (phase + 440/44100) % 1.0;
-state[idx] = phase;
-return [Math.sin(phase * 2 * Math.PI)];
+mem[idx] = (mem[idx] + 440/44100) % 1.0;
+return [Math.sin(mem[idx] * 2 * Math.PI) * 0.5];
 ```
 
-## Roadmap
+### 2. Phase Continuity
 
-- [x] Core FRP architecture with closures
-- [x] Speaker.js transport (PUSH mode)
-- [x] Mono audio (STRIDE=1)
-- [x] Soft clipping with tanh()
-- [x] Van der Pol example
-- [ ] Port high-level sugar (osc, lfo, voices, withLfo)
-- [ ] Stereo support (STRIDE=2)
-- [ ] JACK FFI transport (PULL mode)
-- [ ] 3D oscilloscope integration (STRIDE=4: XYZW)
+State persists in `globalThis.FLUX_STATE` during hot-reload:
+
+```javascript
+globalThis.FLUX_STATE ??= new Float64Array(1024);
+```
+
+When you change a parameter and save, Bun reloads the module but the Float64Array remains untouched, preserving oscillator phases.
+
+### 3. Soft Clipping
+
+All signals auto-clip with `Math.tanh()` in `flux.js:updateAll()`:
+
+```javascript
+for (let i = 0; i < STRIDE; i++) {
+  mixedVector[i] = Math.tanh(mixedVector[i]);
+}
+```
+
+No more speaker-destroying clipping!
+
+### 4. Native Float Audio
+
+48kHz @ 32-bit float (no int16 quantization):
+
+```javascript
+const speaker = new Speaker({
+  channels: STRIDE,
+  bitDepth: 32,
+  sampleRate: 48000,
+  float: true,  // Native float format
+});
+```
+
+### 5. Zero-Copy Optimization
+
+Reusable buffer with `subarray()` eliminates GC pauses:
+
+```javascript
+const reusableBuffer = Buffer.alloc(maxBufferSize);
+// ...
+this.push(reusableBuffer.subarray(0, samples * STRIDE * bytesPerSample));
+```
+
+### 6. Dimension Agnostic (STRIDE)
+
+Current: STRIDE=1 (mono)
+Future: STRIDE=2 (stereo), STRIDE=4 (XYZW for 3D oscilloscope)
+
+```javascript
+export const STRIDE = 1; // Easy to change later
+```
+
+## File Structure
+
+- **index.js** - Entry point
+- **engine.js** - Producer loop & lifecycle
+- **flux.js** - Signal registry & mixing (renamed from kanon.js)
+- **storage.js** - Ring buffer (SharedArrayBuffer)
+- **transport.js** - Audio output (speaker.js)
+- **signals.js** - **LIVE CODE HERE!** User-facing signal definitions
+- **math-helpers.js** - Vector math utilities (optional)
+
+## Deleted Files (No Longer Needed)
+
+- `genish.js` - Abstraction layer eliminated
+- `genish-patched.js` - No longer needed
+- `wave-dsp.js`, `wave-dsp-old.js` - Replaced by direct Float64 math
+- `client/` directory - Browser architecture removed
+- `eval.ts`, `host.ts` - Old WebSocket system
+- `signal-old.js` - Old API
+
+## Migration Guide
+
+### Old API → New API
+
+**1. Simple oscillator**
+```javascript
+// Old
+kanon('sine', (t) => mul(cycle(440), 0.5));
+
+// New
+flux('sine', (mem, idx) => ({
+  update: (sr) => {
+    mem[idx] = (mem[idx] + 440 / sr) % 1.0;
+    return [Math.sin(mem[idx] * 2 * Math.PI) * 0.5];
+  }
+}));
+```
+
+**2. State management**
+```javascript
+// Old
+kanon('drone', (t, state) => {
+  return {
+    graph: mul(0, t),
+    update: () => {
+      let phase = state[0] || 0;
+      phase = (phase + 220 / 44100) % 1.0;
+      state[0] = phase;
+      return Math.sin(phase * 2 * Math.PI) * 0.7;
+    }
+  };
+});
+
+// New
+flux('drone', (mem, idx) => ({
+  update: (sr) => {
+    mem[idx] = (mem[idx] + 220 / sr) % 1.0;
+    return [Math.sin(mem[idx] * 2 * Math.PI) * 0.7];
+  }
+}));
+```
+
+**3. No more graph vs. update dichotomy**
+
+Everything is `update(sr)` returning `[sample]`. Clean and simple.
+
+## Running
+
+```bash
+# Old way (no longer works)
+bun run host.ts
+
+# New way
+bun --hot index.js
+```
+
+## Performance Improvements
+
+| Feature | Old | New |
+|---------|-----|-----|
+| State Access | peek/poke overhead | Direct array access |
+| Audio Format | 44.1kHz 16-bit | 48kHz 32-bit float |
+| GC Pressure | High (Buffer.alloc) | Zero (reusable buffer) |
+| Buffer Size | Small | 2x larger (32K frames) |
+| Fill Strategy | setInterval | setImmediate saturation |
+| Clipping | Manual | Automatic tanh() |
+
+## Future Transport: JACK FFI
+
+Current: Speaker.js (PUSH mode)
+Future: JACK FFI (PULL mode)
+
+```javascript
+// Future implementation
+createTransport('PULL', ringBuffer, sampleRate);
+// C callback directly reads from ringBuffer
+// <10ms latency possible
+```
 
 ## Philosophy
 
-**State-driven, not time-driven:** Signals are recursive state transformers, not pure functions of time. This enables true "live surgery" - when you change parameters, the signal morphs continuously without phase jumps or clicks.
+The new architecture embraces:
 
-**Functional purity where it matters:** State transformers are pure functions, but we embrace stateful closures for performance. This is the 2026 way.
+1. **Direct access over abstraction**: Float64Array vs peek/poke
+2. **State over time**: `f(state)` vs `f(t)`
+3. **Closure power**: Lexical scope for state encapsulation
+4. **Native performance**: No browser sandboxing
+5. **Scientific precision**: Float64 state, Float32 output
 
-**Scientific-grade precision:** Float64Array for state, tanh() soft clipping, atomic ring buffer operations.
+This is the **post-genish** era of DSP in JavaScript.
+
+## Roadmap
+
+- [x] Core FRP architecture
+- [x] Phase-continuous hot-swapping
+- [x] 48kHz @ 32-bit float
+- [x] Zero-copy optimization
+- [x] Renamed to Flux
+- [ ] Stereo support (STRIDE=2)
+- [ ] JACK FFI transport
+- [ ] 3D oscilloscope integration
+- [ ] Vim eval integration
+
+## Credits
+
+Migration inspired by:
+- Incudine (state-based Lisp DSP)
+- SuperCollider (live coding)
+- Modern FRP principles
+
+Previous architecture built with genish.js by Charlie Roberts.

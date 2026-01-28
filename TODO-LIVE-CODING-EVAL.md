@@ -1,13 +1,13 @@
 # TODO: Live Coding Eval System
 
 ## Requirement
-Implement a vim → kanon evaluation system for true live coding workflow.
+Implement a vim → flux evaluation system for true live coding workflow.
 
 ## Desired Workflow
 1. Edit `signals.js` in vim
 2. Select a code block (visual mode: `vip` for paragraph)
 3. Press key combo (e.g., `<Leader>e` or `<Space>e`)
-4. Selected code is evaluated in running kanon process
+4. Selected code is evaluated in running flux process
 5. Sound updates instantly without restarting
 
 ## Current Limitation
@@ -20,7 +20,7 @@ Implement a vim → kanon evaluation system for true live coding workflow.
 ### Architecture Option 1: WebSocket Eval Server (Like old eval.ts)
 ```
 ┌─────────┐  selected code   ┌──────────────┐  eval()  ┌─────────┐
-│   vim   │ ───────────────> │ Eval Server  │ ──────> │  Kanon  │
+│   vim   │ ───────────────> │ Eval Server  │ ──────> │  Flux  │
 │         │                  │ (WebSocket)  │         │ Process │
 └─────────┘                  └──────────────┘         └─────────┘
 ```
@@ -32,12 +32,12 @@ Implement a vim → kanon evaluation system for true live coding workflow.
 **Vim config:**
 ```vim
 " .vimrc
-function! SendToKanon()
+function! SendToFlux()
   let l:code = join(getline("'<", "'>"), "\n")
   call system('echo ' . shellescape(l:code) . ' | bun vim-eval.sh')
 endfunction
 
-vnoremap <Leader>e :call SendToKanon()<CR>
+vnoremap <Leader>e :call SendToFlux()<CR>
 ```
 
 **eval-server.js:**
@@ -50,7 +50,7 @@ const evalServer = serve({
   websocket: {
     message(ws, message) {
       try {
-        // Evaluate in kanon context
+        // Evaluate in flux context
         eval(message);
         ws.send('✓ Evaluated');
       } catch (e) {
@@ -64,7 +64,7 @@ const evalServer = serve({
 ### Architecture Option 2: Unix Socket (Lower Latency)
 ```
 ┌─────────┐  code   ┌──────────────┐  eval()  ┌─────────┐
-│   vim   │ ──────> │ Unix Socket  │ ──────> │  Kanon  │
+│   vim   │ ──────> │ Unix Socket  │ ──────> │  Flux  │
 │         │         │ /tmp/kanon   │         │ Process │
 └─────────┘         └──────────────┘         └─────────┘
 ```
@@ -79,7 +79,7 @@ const evalServer = serve({
 # Create named pipe
 mkfifo /tmp/kanon-eval
 
-# Kanon reads from pipe
+# Flux reads from pipe
 tail -f /tmp/kanon-eval | bun eval-stdin.js
 
 # Vim writes to pipe
@@ -99,7 +99,7 @@ echo "kanon('test', ...)" > /tmp/kanon-eval
 ## Testing Plan
 1. Start kanon with eval server: `bun --hot --eval-server index.js`
 2. Open signals.js in vim
-3. Select a kanon() definition
+3. Select a flux() definition
 4. Press `<Leader>e`
 5. Verify sound changes without file save
 

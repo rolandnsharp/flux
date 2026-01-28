@@ -1,18 +1,18 @@
-// signals.js - Live Coding Interface (New FRP Architecture)
+// signals.js - Live Coding Interface (Flux Engine)
 // ============================================================================
 // LIVE CODING: Edit this file while audio is playing for instant updates!
 // ============================================================================
-// Hot-reload compatible: Uses globalThis.KANON_STATE for phase continuity
+// Hot-reload compatible: Uses globalThis.FLUX_STATE for phase continuity
 // ============================================================================
 
-import { kanon } from './kanon.js';
+import { flux } from './flux.js';
 
 // ============================================================================
 // EXAMPLE 1: Breathing Sine (Simple amplitude modulation)
 // ============================================================================
 // A pure sine wave whose volume breathes with an LFO
 
-// kanon('breathing-sine', (state, idx) => {
+// flux('breathing-sine', (state, idx) => {
 //   const carrierFreq = 220.0; // A3 note
 //   const lfoFreq = 0.5; // Breathe twice per second
 //   const lfoDepth = 0.7; // How much the volume changes
@@ -47,13 +47,13 @@ import { kanon } from './kanon.js';
 // An organic, growling cello-like tone that continuously evolves
 // Uses phase modulation for complex, non-linear harmonics
 
-kanon('vortex-morph', (mem, idx) => {
+flux('vortex-morph', (mem, idx) => {
   // --- SURGERY PARAMS (change these live!) ---
-  const baseFreq = 110.0;    // Deep G2 note
-  const modRatio = 1.618;    // Golden Ratio (non-harmonic shimmer)
-  // const modRatio = 2.1;    // Golden Ratio (non-harmonic shimmer)
-  const morphSpeed = 0.2;    // How fast the "vortex" breathes (Hz)
-  const intensity = 6.0;     // Modulation depth (try 50.0 for chaos!)
+  const baseFreq = 432.0;    // Deep G2 note
+  // const modRatio = 1.618;    // Golden Ratio (non-harmonic shimmer)
+  const modRatio = 1.1;    // Golden Ratio (non-harmonic shimmer)
+  const morphSpeed = 0.1;    // How fast the "vortex" breathes (Hz)
+  const intensity = 7.0;     // Modulation depth (try 50.0 for chaos!)
 
   return {
     update: (sr) => {
@@ -101,7 +101,7 @@ kanon('vortex-morph', (mem, idx) => {
 //   return [x + dx * dt, y + dy * dt];
 // };
 
-// kanon('van-der-pol', (mem, idx) => {
+// flux('van-der-pol', (mem, idx) => {
 //   // --- SURGERY PARAMETERS ---
 //   // mu: 0.1 (sine-like) to 5.0 (aggressive/jagged)
 //   // dt: Controls pitch/speed (0.01 = very low, 0.15 = audio rate)
@@ -146,7 +146,7 @@ kanon('vortex-morph', (mem, idx) => {
 //   return [x + dx * dt, y + dy * dt, z + dz * dt];
 // };
 
-// kanon('lorenz-chaos', (mem, idx) => {
+// flux('lorenz-chaos', (mem, idx) => {
 //   // Classic Lorenz parameters
 //   const params = { sigma: 10, rho: 28, beta: 8 / 3, dt: 0.005 };
 
@@ -181,7 +181,7 @@ kanon('vortex-morph', (mem, idx) => {
 // ============================================================================
 // Classic FM synthesis for metallic, shimmering tones
 
-// kanon('fm-vortex', (mem, idx) => {
+// flux('fm-vortex', (mem, idx) => {
 //   const carrierFreq = 110.0; // Base frequency
 //   const modRatio = 1.618; // Golden ratio for organic shimmer
 //   const modIndex = 2.5; // Modulation depth
@@ -207,7 +207,7 @@ kanon('vortex-morph', (mem, idx) => {
 // ============================================================================
 // 1. Change parameters (mu, dt, freq) and save - sound morphs instantly!
 // 2. Uncomment different examples to hear various oscillators
-// 3. Multiple kanon() calls play simultaneously (each needs unique ID)
-// 4. State persists in globalThis.KANON_STATE during hot-reload
+// 3. Multiple flux() calls play simultaneously (each needs unique ID)
+// 4. State persists in globalThis.FLUX_STATE during hot-reload
 // 5. All signals auto-mix and soft-clip via Math.tanh() in updateAll()
 // ============================================================================

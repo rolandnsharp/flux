@@ -1,6 +1,14 @@
-# KANON - Headless Live-Coding Audio Environment
+# FLUX - Live Sound Surgery Engine
 
-A minimal live-coding environment for audio synthesis. Edit JavaScript in Vim, save the file, hear the changes instantly with **zero clicks or phase resets**.
+> *"Panta Rhei" (Everything Flows) - Heraclitus*
+
+A state-driven live-coding environment for sound synthesis. Edit JavaScript, save, and hear changes instantly with **zero phase resets**. True surgical manipulation of living sound.
+
+## Philosophy
+
+Flux embodies **Heraclitean flow** - sound as a continuous river of state transformations. Unlike traditional `f(t)` synthesis, Flux treats signals as **living processes with momentum and memory**. When you edit parameters, the signal morphs seamlessly because its state persists across code changes.
+
+This is the companion to [Kanon](https://github.com/yourname/kanon) (Pythagorean absolute `f(t)` mathematics).
 
 ## Quick Start
 
@@ -8,223 +16,289 @@ A minimal live-coding environment for audio synthesis. Edit JavaScript in Vim, s
 # Install dependencies
 bun install
 
-# Start the engine
-bun run host.ts
+# Start the engine (with hot-reload)
+bun --hot index.js
 
-# In another terminal: Edit with your favorite editor
-vim signal.js
-# Make changes, save (:w), hear them instantly!
+# Edit signals.js while running for live surgery!
 ```
 
 ## Architecture
 
-KANON uses a simple architecture for hot-reloading audio code:
-
 ```
-Vim/Editor → signal.js → File Watcher → WebSocket → AudioWorklet → Audio Output
-                                                    ↓
-                                              Persistent STATE survives reloads
+┌───────────────────────────────────────────┐
+│  signals.js - Live Coding Interface       │  ← Edit this!
+├───────────────────────────────────────────┤
+│  flux.js - Signal Registry (FRP)          │  ← State transformers
+├───────────────────────────────────────────┤
+│  storage.js - Ring Buffer (The Well)      │  ← SharedArrayBuffer
+├───────────────────────────────────────────┤
+│  transport.js - Audio Sink                │  ← Speaker.js → JACK FFI
+├───────────────────────────────────────────┤
+│  engine.js - Producer Loop                │  ← setImmediate saturation
+└───────────────────────────────────────────┘
 ```
 
-### Files
+### Key Features
 
-- **`host.ts`**: Bun server that launches headless Chromium and watches `signal.js`
-- **`client/engine.js`**: Browser audio engine using Web Audio API + AudioWorklet
-- **`client/worklet.js`**: AudioWorklet processor (audio thread)
-- **`wave-dsp.js`**: DSP library wrapping genish.js with clean API
-- **`signal.js`**: **YOUR CODE** - edit this file to make sounds!
+- **Phase Continuity**: State persists in `globalThis.FLUX_STATE` during hot-reload
+- **Zero-Copy Architecture**: `subarray()` eliminates GC pauses
+- **Soft Clipping**: All signals auto-clipped with `Math.tanh()` for safety
+- **48kHz @ 32-bit float**: Native floating-point audio (no int16 quantization)
+- **Functional Purity**: Pure state transformers (state → nextState → sample)
+- **Dimension Agnostic**: STRIDE=1 (mono) now, upgradable to stereo/3D later
 
-### How It Works
+## Basic Usage
 
-1. **Edit** `signal.js` in your editor
-2. **Save** the file
-3. File watcher detects change
-4. Full file contents sent to AudioWorklet via WebSocket
-5. Code is `eval()`'d in worklet context
-6. Audio updates **instantly** with state preserved
-
-## Two API Patterns
-
-### Pattern 1: SIMPLE (Pure genish - fast, compiled)
-
-Return a genish graph directly. Best for effects, filters, and simple patches.
+### Simple Sine Wave
 
 ```javascript
-// 440Hz sine wave
-kanon('sine', (t) => mul(cycle(440), 0.5));
+import { flux } from './flux.js';
 
-// FM synthesis
-kanon('fm', (t) => {
-  const modulator = mul(cycle(5), 100);
-  const carrier = cycle(add(440, modulator));
-  return mul(carrier, 0.5);
-});
+flux('carrier', (mem, idx) => {
+  const freq = 440.0; // Change this and save - NO CLICKS!
 
-// Filtered sawtooth
-kanon('bass', (t) => lp(mul(phasor(110), 0.8), 0.1));
-```
-
-**Pros:** Fast (compiled by genish), clean syntax
-**Cons:** State resets on code changes (phase discontinuities)
-
-### Pattern 2: STATEFUL (JavaScript state - enables live surgery!)
-
-Return `{graph, update}` where `update()` manages persistent state.
-
-```javascript
-kanon('drone', (t, state) => {
   return {
-    graph: mul(0, t),  // Dummy graph (or use genish for effects)
-    update: () => {
-      // Manage state in plain JavaScript
-      let phase = state[0] || 0;
+    update: (sr) => {
+      // Read-modify-write pattern
+      mem[idx] = (mem[idx] + freq / sr) % 1.0;
 
-      // Change 220 to 440 while playing - NO CLICKS!
-      phase = (phase + 220 / 44100) % 1.0;
-      state[0] = phase;
-
-      // Return sample value
-      return Math.sin(phase * 2 * Math.PI) * 0.7;
+      // Emit sample
+      return [Math.sin(mem[idx] * 2 * Math.PI) * 0.5];
     }
   };
 });
 ```
 
-**Pros:** Phase/state persists across code changes (true live surgery!)
-**Cons:** Slower (JavaScript per-sample), more verbose
-
-### When to Use Each Pattern
-
-- **Simple pattern** → Effects, filters, static sounds
-- **Stateful pattern** → Live-coded evolving textures, parameter morphing
-
-## Available Functions
-
-### Oscillators
-- `cycle(freq)` - Sine wave
-- `phasor(freq)` - Sawtooth ramp (0-1)
-- `noise()` - White noise
-- `sin(phase)`, `cos(phase)` - Trig functions
-
-### Math
-- `add(...args)`, `mul(...args)` - Variadic math
-- `sub(a, b)`, `div(a, b)` - Binary math
-- `mod(a, b)`, `pow(a, b)` - Modulo, power
-- `abs(x)`, `min(a, b)`, `max(a, b)` - Utilities
-
-### Filters
-- `lp(input, cutoff)` - One-pole lowpass (cutoff: 0-1)
-- `hp(input, cutoff)` - One-pole highpass
-- `smooth(target, amount)` - Exponential smoother (amount: 0.9-0.999)
-
-### Effects
-- `echo(input, time, feedback)` - Simple delay
-- `dub(input, time, feedback, darkening)` - Dub-style delay with lowpass
-- `reverb(input, size, damping)` - Simple reverb
-- `saturate(input, drive)` - Soft saturation (drive: 1-10)
-- `fold(input, amount)` - Wavefolding (amount: 1-4)
-- `crush(input, bits)` - Bitcrusher (bits: 4-16)
-- `comb(input, time, feedback)` - Comb filter
-- `karplus(impulse, freq, damping)` - Karplus-Strong plucked string
-
-### Utilities
-- `gain(amount, signal)` - Multiply signal by gain
-- `smoothGain(amount, signal)` - Smooth gain changes
-- `bass(freq)` - Quick bass tone (sine + sub-octave)
-- `wobble(freq, rate)` - Wobble bass with LFO
-
-## Live Surgery Example
-
-The power of KANON is that you can change parameters **while audio is playing** with zero artifacts:
+### Vortex Morph (Phase Modulation)
 
 ```javascript
-// Start with this:
-kanon('drone', (t, state) => {
+flux('vortex-morph', (mem, idx) => {
+  // --- SURGERY PARAMS (change these live!) ---
+  const baseFreq = 110.0;      // Deep G2 note
+  const modRatio = 1.618;      // Golden Ratio
+  const morphSpeed = 0.2;      // Breathe rate (Hz)
+  const intensity = 6.0;       // 0.0 = sine, 50.0 = chaos
+
   return {
-    graph: mul(0, t),
-    update: () => {
-      const freq = 110;  // <- Change this to 220, save, NO CLICKS!
+    update: (sr) => {
+      // Accumulate three phases
+      let p1 = mem[idx];         // Carrier
+      let p2 = mem[idx + 1];     // Modulator
+      let t  = mem[idx + 2];     // LFO
 
-      let phase = state[0] || 0;
-      phase = (phase + freq / 44100) % 1.0;
-      state[0] = phase;
+      p1 = (p1 + baseFreq / sr) % 1.0;
+      p2 = (p2 + (baseFreq * modRatio) / sr) % 1.0;
+      t  = (t + morphSpeed / sr) % 1.0;
 
-      return Math.sin(phase * 2 * Math.PI) * 0.5;
+      mem[idx] = p1;
+      mem[idx + 1] = p2;
+      mem[idx + 2] = t;
+
+      // Phase modulation
+      const depthLFO = Math.sin(t * 2 * Math.PI) * intensity;
+      const modulator = Math.sin(p2 * 2 * Math.PI) * depthLFO;
+      const sample = Math.sin(p1 * 2 * Math.PI + modulator);
+
+      return [sample * 0.5];
     }
   };
 });
-
-// Edit freq from 110 → 220 → 440
-// Save each time
-// Phase continues seamlessly = live surgery!
 ```
 
-## State Buffer Organization
+### Van der Pol Oscillator
 
-The `state` parameter is a `Float32Array[128]` that persists across all reloads.
-
-**Recommended slot allocation:**
-- `0-19`: Oscillator phases
-- `20-39`: LFO phases
-- `40-59`: Envelopes, smoothers
-- `60-69`: Beat clocks
-- `70-89`: Filter history
-- `90-109`: Delay buffers
-- `110-127`: User experiments
-
-Example:
 ```javascript
-state[0]  = carrier phase
-state[10] = LFO phase
-state[70] = lowpass y[n-1]
+const vanDerPolStep = (state, { mu, dt }) => {
+  const [x, y] = state;
+  const dx = y;
+  const dy = mu * (1 - x * x) * y - x;
+  return [x + dx * dt, y + dy * dt];
+};
+
+flux('van-der-pol', (mem, idx) => {
+  // --- SURGERY PARAMETERS ---
+  const params = { mu: 1.5, dt: 0.12 };
+
+  // Initialize if empty
+  if (mem[idx] === 0) {
+    mem[idx] = 0.1;
+    mem[idx + 1] = 0.1;
+  }
+
+  return {
+    update: () => {
+      // Pure functional state transformation
+      const current = [mem[idx], mem[idx + 1]];
+      const [nextX, nextY] = vanDerPolStep(current, params);
+
+      // Commit to persistent memory
+      mem[idx] = nextX;
+      mem[idx + 1] = nextY;
+
+      // Emit (X is the signal)
+      return [nextX * 0.4];
+    }
+  };
+});
 ```
 
-## Rebuilding the Bundle
+## Live Surgery Workflow
 
-If you modify `wave-dsp.js` or `client/worklet.js`:
+1. **Start Flux**: `bun --hot index.js`
+2. **Open** `signals.js` in your editor
+3. **Edit** a parameter (e.g., `intensity = 6.0` → `intensity = 12.0`)
+4. **Save** (`:w` in Vim)
+5. **Hear it morph instantly** with zero discontinuity
 
-```bash
-cat genish-patched.js wave-dsp.js client/worklet.js > client/worklet-bundled.js
+### Why It Works
+
+When you save `signals.js`:
+1. Bun reloads the module
+2. The old signal registry is cleared
+3. New `flux()` calls register fresh closures with updated parameters
+4. **State in `globalThis.FLUX_STATE` is untouched**
+5. Signal continues from exact phase position with new math
+
+This is **phase-continuous hot-swapping**.
+
+## State Management
+
+### Persistent State Buffer
+
+```javascript
+globalThis.FLUX_STATE ??= new Float64Array(1024);
 ```
+
+Each signal gets a deterministic slot via string hash:
+
+```javascript
+flux('my-signal', (mem, idx) => {
+  // You get ~3-4 slots typically
+  mem[idx]     // First variable (e.g., phase)
+  mem[idx + 1] // Second variable (e.g., LFO)
+  mem[idx + 2] // Third variable (e.g., envelope)
+  // ...
+});
+```
+
+**Critical**: State survives hot-reload! This is why oscillators don't click or reset phase when you change parameters.
+
+## API Reference
+
+### Core Functions
+
+#### `flux(id, factory)`
+Register a signal for live surgery.
+
+- **id** (string): Unique identifier
+- **factory** (function): `(mem, idx) => { update: (sr) => [samples...] }`
+- **Returns**: Signal object
+
+#### `updateAll(sampleRate)`
+Mix all registered signals and apply soft clipping.
+
+- **sampleRate** (number): Sample rate (e.g., 48000)
+- **Returns**: Array of mixed samples
+
+#### `clear()`
+Remove all registered signals. (Called automatically on hot-reload)
+
+#### `list()`
+Get array of all registered signal IDs.
+
+#### `remove(id)`
+Remove a specific signal by ID.
+
+## Files
+
+- **index.js** - Entry point, console interface
+- **engine.js** - Producer loop, lifecycle management
+- **flux.js** - Signal registry & mixing logic
+- **storage.js** - Ring buffer (SharedArrayBuffer)
+- **transport.js** - Audio output (speaker.js)
+- **signals.js** - **YOUR CODE** - Live-codeable signal definitions
+- **math-helpers.js** - Vector math utilities (optional)
 
 ## Technical Details
 
-- **Audio**: Web Audio API, AudioWorklet (44.1kHz)
-- **Browser**: Playwright (headless Chromium)
-- **Server**: Bun with file watcher
-- **DSP**: genish.js for compiled graphs + plain JavaScript for state
-- **Communication**: WebSocket for file change notifications + code delivery
+- **Runtime**: Bun with `--hot` flag for hot-reload
+- **Audio**: speaker.js (48kHz @ 32-bit float)
+- **State Memory**: Float64Array (1024 slots, sub-sample precision)
+- **Ring Buffer**: SharedArrayBuffer (32768 frames, ~680ms @ 48kHz)
+- **Producer Loop**: `setImmediate` saturation for maximum throughput
+- **Soft Clipping**: `Math.tanh()` on mixed output
 
 ## Why This Architecture?
 
-1. **File system as communication channel** - Simpler than complex WebSocket protocols
-2. **String eval() for hot-reload** - Standard pattern for AudioWorklet updates
-3. **Global state buffer** - Persistent Float32Array survives all reloads
-4. **Headless browser** - Reliable, cross-platform, automation-friendly
-5. **Zero build step** - Just bundle pre-existing files
+### vs. Traditional `f(t)` Synthesis
+
+Traditional systems evaluate `f(t)` - a pure function of time:
+
+```javascript
+// Can't do live surgery - restarting resets t
+const sample = Math.sin(t * 2 * Math.PI * freq);
+```
+
+Flux uses `f(state)` - recursive state transformations:
+
+```javascript
+// Phase persists across parameter changes
+mem[idx] = (mem[idx] + freq / sr) % 1.0;
+const sample = Math.sin(mem[idx] * 2 * Math.PI);
+```
+
+### vs. Lisp/Incudine
+
+See [DOCS/BEYOND-LISP.md](DOCS/BEYOND-LISP.md) for philosophical comparison.
+
+**Key advantages**:
+- No RT kernel requirement
+- Unified memory (audio + visualization)
+- JIT optimization (adaptive runtime compilation)
+- Web-native deployment
+- NPM ecosystem access
+
+## Documentation
+
+- **[SURGERY_GUIDE.md](DOCS/SURGERY_GUIDE.md)** - Live coding workflow and best practices
+- **[BEYOND-LISP.md](DOCS/BEYOND-LISP.md)** - How Flux transcends Lisp/Incudine
+- **[KANON-FLUX-DUALITY.md](DOCS/KANON-FLUX-DUALITY.md)** - Philosophical foundation
+
+## Roadmap
+
+- [x] Core FRP architecture with closures
+- [x] Phase-continuous hot-swapping
+- [x] 48kHz @ 32-bit float audio
+- [x] Zero-copy buffer optimization
+- [x] Soft clipping with tanh()
+- [ ] Stereo support (STRIDE=2)
+- [ ] JACK FFI transport (PULL mode, <10ms latency)
+- [ ] 3D oscilloscope integration (STRIDE=4: XYZW)
+- [ ] Vim eval integration (select → send → eval)
 
 ## Philosophy
 
-**Simplicity is divinity.** KANON embraces:
-- Edit with any editor (Vim, VSCode, nano)
-- Save file → Instant audio update
-- No complex state management
-- Two simple patterns: fast or stateful
-- ~900 lines of code (excluding genish.js)
+> **Kanon without Flux is mathematics without music.**
+> **Flux without Kanon is sound without soul.**
 
-## Examples
+Flux is where the eternal ratios of Kanon (φ, 3:2, perfect fifths) are thrown into the fire of Heraclitean flow and become **living experience**.
 
-Check `signal.js` for examples of:
-- Simple sine/FM/filtered patches
-- Stateful live surgery drone
-- Beat-synced kick drum
-- Effects chains
+## Credits
+
+Inspired by:
+- Incudine (Common Lisp DSP)
+- SuperCollider (live coding pioneer)
+- TidalCycles (pattern-based live coding)
+- Max/MSP (dataflow paradigm)
+
+Built with:
+- [Bun](https://bun.sh) - Fast JavaScript runtime
+- [speaker](https://github.com/TooTallNate/node-speaker) - Node.js audio output
 
 ## License
 
 MIT
 
-## Credits
+---
 
-- Built with [genish.js](https://github.com/charlieroberts/genish.js) by Charlie Roberts
-- Powered by [Bun](https://bun.sh) and [Playwright](https://playwright.dev)
+*"You can't step in the same river twice, but you can change its current while standing in it."* - Flux Engineering Principle

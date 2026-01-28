@@ -1,6 +1,6 @@
-// kanon.js - The Surgical Registry (FRP Signal Management)
+// flux.js - The Flux Engine Registry (FRP Signal Management)
 // ============================================================================
-// "The Brain" - Functional Reactive Programming for Sound Surgery
+// "The Flow" - Heraclitean Signal Surgery for Living Sound
 // ============================================================================
 
 import { STRIDE } from './storage.js';
@@ -10,12 +10,12 @@ import { STRIDE } from './storage.js';
 // ============================================================================
 
 // Persistent Float64Array for "Scientific Grade" phase precision
-globalThis.KANON_STATE ??= new Float64Array(1024);
-const stateMemory = globalThis.KANON_STATE;
+globalThis.FLUX_STATE ??= new Float64Array(1024);
+const stateMemory = globalThis.FLUX_STATE;
 
 // Signal registry (Map survives across hot-reloads in globalThis)
-globalThis.KANON_REGISTRY ??= new Map();
-const registry = globalThis.KANON_REGISTRY;
+globalThis.FLUX_REGISTRY ??= new Map();
+const registry = globalThis.FLUX_REGISTRY;
 
 // ============================================================================
 // Core API
@@ -27,7 +27,7 @@ const registry = globalThis.KANON_REGISTRY;
  * @param {Function} factory - (state, idx) => { update: (sr) => [samples...] }
  * @returns {Object} - Signal object with update method
  */
-export function kanon(id, factory) {
+export function flux(id, factory) {
   // Simple hash for persistent index (deterministic across reloads)
   const idx = [...id].reduce((acc, char) => acc + char.charCodeAt(0), 0) % 512;
 
